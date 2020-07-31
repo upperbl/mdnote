@@ -4,7 +4,6 @@
 
 ### 集合
 
-![image-20200730135335826](C:\Users\Administrator\AppData\Roaming\Typora\typora-user-images\image-20200730135335826.png)
 
 #### List
 
@@ -138,3 +137,4 @@ spark常见crach
 ## 对业务共享更大的一项工作
 
 ## 数据仓库和数据库的区别
+
