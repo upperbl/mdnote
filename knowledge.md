@@ -95,7 +95,142 @@ HashMap是非线程安全的，即在同一时刻有多个线程同时写HashMap
 
 ## hive explain
 
-## sql laterview explod
+查看执行计划的基本信息，即explain；
+
+查看执行计划的扩展信息，即explain extended；
+
+查看SQL数据输入依赖的信息，即explain dependency；
+
+查看SQL操作相关权限的信息，即explain authorization；
+
+查看SQL的向量化描述信息，即explain vectorization。
+
+## SQL优化
+
+### 优化join sql
+
+```
+--代码片段1
+select a.s_no 
+from student_orc_partition  a
+inner join student_orc_partition_only b
+on a.s_no=b.s_no and a.part=b.part and a.part>=1 and a.part<=2
+--代码片段2
+select a.s_no 
+from student_orc_partition  a
+inner join student_orc_partition_only b
+on a.s_no=b.s_no and a.part=b.part
+where a.part>=1 and a.part<=2
+```
+
+上面两个代码块看似一样，但是执行起来会有很大的区别，我们使用 explain dependency 查看执行依赖
+
+```
+--代码片段1的explain dependency打印结果：
+{"input_partitions":
+[{"partitionName":"default@student_orc_partition@part=0"},
+{"partitionName":"default@student_orc_partition@part=1"},
+{"partitionName":"default@student_orc_partition@part=2"},
+{"partitionName":"default@student_orc_partition_only@part=1"},
+{"partitionName":"default@student_orc_partition_only@part=2"}],
+"input_tables":
+[{"tablename":"default@student_orc_partition","tabletype":"MANAGED_TABLE"},
+{"tablename":"default@student_orc_partition_only","tabletype":"MANAGED_TABLE"}]}
+--代码片段2的explain dependency打印结果：
+{"input_partitions":
+[{"partitionName":"default@student_orc_partition@part=1"},
+{"partitionName" : "default@student_orc_partition@part=2"},
+{"partitionName" :"default@student_orc_partition_only@part=1"},
+{"partitionName":"default@student_orc_partition_only@part=2"}],
+"input_tables":
+[{"tablename":"default@student_orc_partition","tabletype":"MANAGED_TABLE"},
+{"tablename":"default@student_orc_partition_only","tabletype":"MANAGED_TABLE"}]}
+
+```
+
+通过上面的输出结果可以看到，其实上述的两个SQL并不等价，在内连接（inner join）中的连接条件中加入非等值的过滤条件后，并没有将内连接的左右两个表按照过滤条件进行过滤，内连接在执行时会多读取part=0的分区数据。
+
+可以看到，对左外连接在连接条件中加入非等值过滤的条件，如果过滤条件是作用于右表（b表）有起到过滤的效果，则右表只要扫描两个分区即可，但是左表（a表）会进行全表扫描。如果过滤条件是针对左表，则完全没有起到过滤的作用，那么两个表将进行全表扫描。这时的情况就如同全外连接一样都需要对两个数据进行全表扫描。
+
+ 如果要使用外连接并需要对左、右两个表进行条件过滤，最好的方式就是将过滤条件放到表的就近处，即如果已经知道表数据过滤筛选条件，那么在使用该表前，就用该过滤条件进行过滤，一些SQL内置优化器也会做上述的优化，例如下sql
+
+```
+select a.s_no 
+from （
+  select s_no,part
+  from student_orc_partition
+  --在子查询内部进行过滤
+  where part>=1 and part<=2
+）  a
+left outer join student_orc_partition_only b
+on a.s_no=b.s_no and a.part=b.part ;
+```
+
+## 常见hive UDF考察
+
+说明，关于内置的hive的udf函数使用，建议直接参考hive 官方wiki https://cwiki.apache.org/confluence/display/Hive/LanguageManual+UDF#LanguageManualUDF-explode(array)
+
+### explode
+
+`explode()` takes in an array (or a map) as an input and outputs the elements of the array (map) as separate rows. UDTFs can be used in the SELECT expression list and as a part of LATERAL VIEW.
+
+As an example of using `explode()` in the SELECT expression list, consider a table named myTable that has a single column (myCol) and two rows:
+
+| Array<int> myCol |
+| :--------------- |
+| [100,200,300]    |
+| [400,500,600]    |
+
+Then running the query:
+
+```
+SELECT explode(myCol) AS myNewCol FROM myTable;
+```
+
+will produce:
+
+| (int) myNewCol |
+| :------------- |
+| 100            |
+| 200            |
+| 300            |
+| 400            |
+| 500            |
+| 600            |
+
+The usage with Maps is similar:
+
+```
+SELECT` `explode(myMap) ``AS` `(myMapKey, myMapValue) ``FROM` `myMapTable;
+```
+
+### lateral view explod
+
+```
+SELECT * FROM `default`.`testlater`;
+```
+
+| pageid      | addlist |
+| ----------- | ------- |
+| frontpage   | [1,2,3] |
+| contactpage | [4,5,6] |
+
+```
+select pageid , t1 from  testlater  lateral view explode(split(regexp_replace(addlist,"\\[|\\]",""),","))a as t1
+```
+
+| **pageid**  | **t1** |
+| ----------- | ------ |
+| frontpage   | 1      |
+| frontpage   | 2      |
+| frontpage   | 3      |
+| contactpage | 4      |
+| contactpage | 5      |
+| contactpage | 6      |
+
+lateral view用于和split, explode等UDTF一起使用，它能够将一行数据拆成多行数据，在此基础上可以对拆分后的数据进行聚合。lateral view首先为原始表的每行调用UDTF，UDTF会把一行拆分成一或者多行，lateral view再把结果组合，产生一个支持别名表的虚拟表。
+
+由此可见，lateral view与explode等udtf就是天生好搭档，explode将复杂结构一行拆成多行，然后再用lateral view做各种聚合。
 
 ## 拉链表应用场景及实现
 
@@ -181,7 +316,7 @@ splitMaxSize=totalSize/max(mapred.min.split.size,blockSize)
 
 需要减少mapred.min.split.size的值，同时增大mapred.map.tasks的值。
 
-#### 常用优化
+#### 常用mr优化
 
 ##### 开起向量化查询
 
