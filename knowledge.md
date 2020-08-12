@@ -73,6 +73,8 @@ HashMap是非线程安全的，即在同一时刻有多个线程同时写HashMap
 
 在ConcurrentHashMap中有个concurrencyLevel参数表示并行级别，默认是 16，也就是说ConcurrentHashMap默认由 16个Segments组成，在这种情况下最多同时支持 16个线程并发执行写操作，只要它们的操作分布在不同的Segment上即可。并行级别concurrencyLevel可以在初始化时设置，一旦初始化就不可更改。ConcurrentHashMap的每个Segment内部的数据结构都和HashMap相同。
 
+### String+Stringbuilder+StringBuffer
+
 ## 线程池、多线程
 
 ## 垃圾回收机制
@@ -81,7 +83,35 @@ HashMap是非线程安全的，即在同一时刻有多个线程同时写HashMap
 
 ## volatile
 
+# Hbase
+
+### hbase热点问题
+
+#### 原因
+
+#### 解决方案
+
+# Kafka
+
+### kafka消费顺序问题
+
+### 如何保证数据按顺序消费
+
+# Sqoop
+
+## 多线程拉取数据
+
+如果线程挂了如何保证数据一致性问题
+
 # Hive
+
+## 架构分析
+
+## Driver
+
+## metastore元数据管理
+
+## hive thiftserver
 
 ## 内部表外部表
 
@@ -166,11 +196,13 @@ left outer join student_orc_partition_only b
 on a.s_no=b.s_no and a.part=b.part ;
 ```
 
-## 常见hive UDF考察
+## 常见hive SQL考察
 
 说明，关于内置的hive的udf函数使用，建议直接参考hive 官方wiki https://cwiki.apache.org/confluence/display/Hive/LanguageManual+UDF#LanguageManualUDF-explode(array)
 
-### explode
+### UDF考察
+
+#### explode
 
 `explode()` takes in an array (or a map) as an input and outputs the elements of the array (map) as separate rows. UDTFs can be used in the SELECT expression list and as a part of LATERAL VIEW.
 
@@ -204,7 +236,7 @@ The usage with Maps is similar:
 SELECT` `explode(myMap) ``AS` `(myMapKey, myMapValue) ``FROM` `myMapTable;
 ```
 
-### lateral view explod
+#### lateral view explod
 
 ```
 SELECT * FROM `default`.`testlater`;
@@ -232,15 +264,315 @@ lateral view用于和split, explode等UDTF一起使用，它能够将一行数�
 
 由此可见，lateral view与explode等udtf就是天生好搭档，explode将复杂结构一行拆成多行，然后再用lateral view做各种聚合。
 
-## 拉链表应用场景及实现
+### 开窗函数考察
 
-## 常见开窗函数
+**目录**
 
-## Sql执行过程
+[浅谈hive常用窗口函数](https://blog.csdn.net/liu82327114/article/details/106017532#浅谈hive常用窗口函数)
 
-## 常用sql
+[简介](https://blog.csdn.net/liu82327114/article/details/106017532#简介)
+
+[常用窗口函数](https://blog.csdn.net/liu82327114/article/details/106017532#常用窗口函数)
+
+[over](https://blog.csdn.net/liu82327114/article/details/106017532#over（）)
+
+[SUM,AVG,MIN,MAX](https://blog.csdn.net/liu82327114/article/details/106017532#SUM%2CAVG%2CMIN%2CMAX)
+
+[NTILE](https://blog.csdn.net/liu82327114/article/details/106017532#NTILE)
+
+[ROW_NUMBER](https://blog.csdn.net/liu82327114/article/details/106017532#ROW_NUMBER)
+
+[RANK & DENSE_RANK](https://blog.csdn.net/liu82327114/article/details/106017532#RANK %26 DENSE_RANK)
+
+[CUME_DIST&PERCENT_RANK](https://blog.csdn.net/liu82327114/article/details/106017532#CUME_DIST%26PERCENT_RANK)
+
+[LAG](https://blog.csdn.net/liu82327114/article/details/106017532#LAG)
+
+[LEAD](https://blog.csdn.net/liu82327114/article/details/106017532#LEAD)
+
+[FIRST_VALUE&LAST_VALUE](https://blog.csdn.net/liu82327114/article/details/106017532#FIRST_VALUE%26LAST_VALUE)
+
+## 
+
+窗口函数又名开窗函数，属于分析函数的一种，用于解决复杂报表统计需求的功能强大的函数。窗口函数用来计算基于组的某种聚合值，它和聚合函数的不同之处是：对于每个组返回多行，而聚合函数对于每个组只返回一行。
+
+开窗函数指定了分析函数工作的数据窗口大小，这个数据窗口大小可能会随着行的变化而变化。
+
+#### over
+
+- over() 通常与聚合函数共同使用，比如 count()、sum()、min()、max()、avg() 等。
+- over() 具有一定的窗口语义 ，如：OVER(ROWS ((CURRENT ROW) | (UNBOUNDED) PRECEDING) AND (UNBOUNDED |(CURRENT ROW) ) FOLLOWING )，不过这些窗口定义经常与聚合函数（sum min max）相结合使用，像一些序列函数（row number、rank等）是不可以使用的
+- over() 直接使用时，通常是指定全量数据，当我们想要按某列的不同值进行窗口划分时，可以在 over() 中加入 partition by 语句。
+
+**在单独进行明细和count聚合的时候都会报错，但是加上窗口就可以正常执行**
+
+```
+select *,count(*)  from t_dw_orders_his
+-------------------------------------------------------------------------------------------
+Error while compiling statement: FAILED: SemanticException [Error 10025]: Expression not in GROUP BY key orderid
+select *,count(*) over() from t_dw_orders_his  where p_event_date="2015-08-22"
+//可以正常得到结果
+10	2015-08-22	2015-08-22	支付	2015-08-22	9999-12-31	2015-08-22	17
+9	2015-08-22	2015-08-22	创建	2015-08-22	9999-12-31	2015-08-22	17
+8	2015-08-21	2015-08-22	支付	2015-08-22	9999-12-31	2015-08-22	17
+8	2015-08-21	2015-08-21	创建	2015-08-21	2015-08-21	2015-08-22	17
+7	2015-08-20	2015-08-21	支付	2015-08-21	9999-12-31	2015-08-22	17
+7	2015-08-20	2015-08-21	支付	2015-08-20	2015-08-20	2015-08-22	17
+6	2015-08-20	2015-08-22	支付	2015-08-22	9999-12-31	2015-08-22	17
+6	2015-08-20	2015-08-20	创建	2015-08-20	2015-08-21	2015-08-22	17
+5	2015-08-19	2015-08-20	支付	2015-08-19	9999-12-31	2015-08-22	17
+4	2015-08-19	2015-08-21	完成	2015-08-21	9999-12-31	2015-08-22	17
+4	2015-08-19	2015-08-21	完成	2015-08-19	2015-08-20	2015-08-22	17
+3	2015-08-19	2015-08-21	支付	2015-08-21	9999-12-31	2015-08-22	17
+3	2015-08-19	2015-08-21	支付	2015-08-19	2015-08-20	2015-08-22	17
+2	2015-08-18	2015-08-22	完成	2015-08-22	9999-12-31	2015-08-22	17
+2	2015-08-18	2015-08-18	创建	2015-08-18	2015-08-21	2015-08-22	17
+1	2015-08-18	2015-08-22	支付	2015-08-22	9999-12-31	2015-08-22	17
+```
+
+#### SUM,AVG,MIN,MAX
+
+此类聚合函数用户类似，在此我们以SUM为例结合OVER的窗口语句进行总结
+
+准备数据
+
+```
+CREATE TABLE orders1(
+  `orderid` int, 
+  `createtime` string, 
+  `money` int)
+-----------------------
+SELECT * FROM orders1
+-----------------------
+1	2015-08-18	72
+1	2015-08-19	19
+1	2015-08-20	67
+1	2015-08-21	78
+1	2015-08-22	62
+1	2015-08-23	62
+```
+
+各种over参数情况下效果如下
+
+```sql
+SELECT orderid,
+createtime,
+money,
+SUM(money) OVER() AS money1,
+SUM(money) OVER(PARTITION BY orderid ORDER BY createtime ASC) AS money2, 
+SUM(money) OVER(PARTITION BY orderid ORDER BY  createtime ASC ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS money3, 
+SUM(money) OVER(PARTITION BY orderid ORDER BY createtime ASC ROWS BETWEEN 3 PRECEDING AND CURRENT ROW) AS money4,
+SUM(money) OVER(PARTITION BY orderid ORDER BY createtime ASC ROWS BETWEEN 3 PRECEDING AND 1 FOLLOWING) AS money5,   
+SUM(money) OVER(PARTITION BY orderid ORDER BY createtime ASC ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING) AS money6   
+FROM orders1;
+```
+
+结果如图
+
+![img](https://img-blog.csdnimg.cn/20200509153639506.png)
+
+总结
+
+PRECEDING：往前数几行
+FOLLOWING：往后
+CURRENT ROW：当前行
+UNBOUNDED：起点，UNBOUNDED PRECEDING 表示从前面的起点， UNBOUNDED FOLLOWING：表示到后面的终点
+
+特别注意当上面的那个demo如果createtime有重复值,则会意想不到的效果，结果如下面请参考
+
+```sql
+SELECT * FROM orders1
+1	2015-08-18	72
+1	2015-08-18	72
+1	2015-08-19	78
+1	2015-08-19	19
+1	2015-08-19	72
+1	2015-08-20	62
+1	2015-08-20	62
+1	2015-08-21	67
+1	2015-08-22	78
+1	2015-08-22	24
+1	2015-08-23	67
+1	2015-08-23	19
+1	2015-08-23	19
+同样的执行下面这个sql
+SELECT orderid,
+createtime,
+money,
+SUM(money) OVER() AS money1,
+SUM(money) OVER(PARTITION BY orderid ORDER BY createtime ASC) AS money2, 
+SUM(money) OVER(PARTITION BY orderid ORDER BY  createtime ASC ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS money3, 
+SUM(money) OVER(PARTITION BY orderid ORDER BY createtime ASC ROWS BETWEEN 3 PRECEDING AND CURRENT ROW) AS money4,
+SUM(money) OVER(PARTITION BY orderid ORDER BY createtime ASC ROWS BETWEEN 3 PRECEDING AND 1 FOLLOWING) AS money5,   
+SUM(money) OVER(PARTITION BY orderid ORDER BY createtime ASC ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING) AS money6   
+FROM orders1;
+```
+
+结果如下
+
+![img](https://img-blog.csdnimg.cn/20200509154010490.png?x-oss-process=image/watermark,type_ZmFuZ3poZW5naGVpdGk,shadow_10,text_aHR0cHM6Ly9ibG9nLmNzZG4ubmV0L2xpdTgyMzI3MTE0,size_16,color_FFFFFF,t_70)
+
+#### NTILE
+
+NTILE(n)，切片函数，用于将分组数据按照顺序切分成n片，返回当前切片值，如果切片不均匀，默认增加第一个切片的分布
+
+准备数据如下
+
+```
+CREATE TABLE orders1(
+  `orderid` int, 
+  `createtime` string, 
+  `money` int)
+-----------------------
+SELECT * FROM orders1
+-----------------------
+1	2015-08-18	72
+1	2015-08-19	19
+1	2015-08-20	67
+1	2015-08-21	78
+1	2015-08-22	62
+1	2015-08-23	62
+```
+
+执行sql效果如下
+
+```sql
+SELECT 
+orderid,
+createtime,
+money,
+NTILE(2) OVER(PARTITION BY orderid ORDER BY createtime) AS rn1,
+NTILE(3) OVER(PARTITION BY orderid ORDER BY createtime) AS rn2,
+NTILE(4) OVER(ORDER BY createtime) AS rn3
+FROM orders1 
+```
+
+结果如下，可以注意下分成4个切片的情况，数据共有6组，分成4组切片的时候每组不足两个，结果第三组和第四组各有1个
+
+![img](https://img-blog.csdnimg.cn/20200509155332729.png)
+
+#### ROW_NUMBER
+
+ROW_NUMBER() –从1开始，按照顺序，生成分组内记录的序列，这个函数是非常常用的一个窗口函数，应用场景非常广泛，如在各种求日活月活的场景（配合where rn=1的用法比较多）
+
+```
+SELECT 
+orderid,
+createtime,
+money,
+row_number() OVER(PARTITION BY orderid ORDER BY createtime) AS rn
+FROM orders1 
+```
+
+![img](https://img-blog.csdnimg.cn/20200509160114961.png)
+
+#### RANK & DENSE_RANK
+
+—RANK() 生成数据项在分组中的排名，排名相等会在名次中留下空位,数字是不连续的
+—DENSE_RANK() 生成数据项在分组中的排名，排名相等会在名次中不会留下空位，数字是连续的
+
+```
+SELECT 
+orderid,
+createtime,
+money,
+rank() OVER(PARTITION BY orderid ORDER BY money) AS rn1,
+dense_rank() OVER(PARTITION BY orderid ORDER BY money) AS rn2
+FROM orders1 
+```
+
+![img](https://img-blog.csdnimg.cn/20200509161143320.png)
+
+#### CUME_DIST&PERCENT_RANK
+
+–CUME_DIST 小于等于当前值的行数/分组内总行数
+–比如，统计小于等于当前薪水的人数，所占总人数的比例
+
+–PERCENT_RANK 分组内当前行的RANK()函数值-1/分组内总行数-1
+
+```
+SELECT 
+orderid,
+createtime,
+money,
+cume_dist() OVER(PARTITION BY orderid ORDER BY money) AS rn1,
+percent_rank() OVER(PARTITION BY orderid ORDER BY money) AS rn2,
+rank() OVER(PARTITION BY orderid ORDER BY money) AS rn3
+FROM orders1 
+```
+
+![img](https://img-blog.csdnimg.cn/20200509163101356.png)
+
+#### LAG
+
+LAG(col,n,DEFAULT) 用于统计窗口内往上第n行值
+第一个参数为列名，第二个参数为往上第n行（可选，默认为1），第三个参数为默认值（当往上第n行为NULL时候，取默认值，如不指定，则为NULL）
+
+```
+SELECT 
+orderid,
+createtime,
+money,
+lag(money,1,null) OVER(PARTITION BY orderid ORDER BY money) AS rn1,
+lag(money,2,22) OVER(PARTITION BY orderid ORDER BY money) AS rn2,
+lag(money,3,33) OVER(PARTITION BY orderid ORDER BY money) AS rn3
+FROM orders1 
+```
+
+![img](https://img-blog.csdnimg.cn/20200509165300194.png)
+
+#### LEAD
+
+与LAG相反
+LEAD(col,n,DEFAULT) 用于统计窗口内往下第n行值
+第一个参数为列名，第二个参数为往下第n行（可选，默认为1），第三个参数为默认值（当往下第n行为NULL时候，取默认值，如不指定，则为NULL）
+
+```
+SELECT 
+orderid,
+createtime,
+money,
+lead(money,1,null) OVER(PARTITION BY orderid ORDER BY money) AS rn1,
+lead(money,2,22) OVER(PARTITION BY orderid ORDER BY money) AS rn2,
+lead(money,3,33) OVER(PARTITION BY orderid ORDER BY money) AS rn3
+FROM orders1 
+```
+
+![img](https://img-blog.csdnimg.cn/20200509165520767.png)
+
+#### FIRST_VALUE&LAST_VALUE
+
+--FIRST_VALUE取分组内排序后，截止到当前行，第一个值
+
+--LAST_VALUE取分组内排序后，截止到当前行，最后一个值
+
+```
+SELECT
+orderid,
+createtime,
+money,
+first_value(money) OVER(PARTITION BY orderid ORDER BY money) AS rn1,
+last_value(money) OVER(PARTITION BY orderid ORDER BY money) AS rn2,
+first_value(money) OVER(PARTITION BY orderid ORDER BY money desc) AS rn11,
+last_value(money) OVER(PARTITION BY orderid ORDER BY money desc) AS rn22
+FROM orders1 
+```
+
+![img](https://img-blog.csdnimg.cn/20200509170119285.png)
+
+#### 
 
 ### uid，店铺每个店铺访问最多的top5
+
+### 连续访问topN
+
+uid,dianpu,date 找出一个月内访问连续访问这个店铺超过五天的uid
+
+### 拉链表应用场景及实现
+
+### 去重方法和应用逻辑
+
+## Sql执行过程
 
 ## 数据倾斜
 
@@ -249,6 +581,14 @@ lateral view用于和split, explode等UDTF一起使用，它能够将一行数�
 ### 解决方案
 
 # SPARK
+
+## hive和spark比较
+
+### 哪个用的多
+
+### 哪个稳定性高一点
+
+### spark core里面的stage job task角色关系
 
 ## 常见的spark rdd
 
@@ -350,6 +690,14 @@ Reducer任务启动后，会启动拉取数据的线程，从HDFS拉取所需要
 
 # 数据仓库
 
+## 数据血缘问题
+
+## 数据仓库和数据库的区别
+
+## 概念
+
+## 中台区别
+
 ## ODS层工作内容
 
 ## DWD层如何建模
@@ -366,4 +714,6 @@ Reducer任务启动后，会启动拉取数据的线程，从HDFS拉取所需要
 
 ## 对业务共享更大的一项工作
 
-## 数据仓库和数据库的区别
+## 核心竞争力
+
+## 项目中的骄傲点
